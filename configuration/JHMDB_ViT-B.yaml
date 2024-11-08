@@ -1,0 +1,91 @@
+DDP_CONFIG:
+  WORLD_SIZE: 1
+  WORLD_RANK: 0
+  GPU_WORLD_SIZE: 8
+  GPU_WORLD_RANK: 0
+  DIST_URL: 'tcp://{}:11590' 
+  WORLD_URLS: ["{}"]
+  AUTO_RANK_MATCH: True
+  DIST_BACKEND: 'nccl'
+  GPU: 0
+  DISTRIBUTED: True
+
+CONFIG:
+  EVAL_ONLY: True
+  TWO_STREAM: False
+  USE_LFB: False
+  USE_LOCATION: False
+
+  VAL:
+    BATCH_SIZE: 1
+    FREQ: 5
+
+  DATA:
+    DATASET_NAME: 'jhmdb'
+    ANNO_PATH: '/path/to/dataset/JHMDB/JHMDB-GT.pkl'
+    DATA_PATH: '/path/to/dataset/JHMDB/Frames'
+    NUM_CLASSES: 21
+    SPLIT: 0    
+    MULTIGRID: False
+    IMG_SIZE: 256
+    IMG_RESHAPE_SIZE: 288
+    TEMP_LEN: 40
+    FRAME_RATE: 1
+
+  MODEL:
+    SINGLE_FRAME: False
+    BACKBONE_NAME: ViT
+    TUNE_POINT: 0 # [0, 11]
+    TEMPORAL_DS_STRATEGY: decode
+    LAST_STRIDE: False
+    GENERATE_LFB: False
+    NAME: 'jhmdb_vit-b'
+    ENC_LAYERS: 3
+    DEC_LAYERS: 3
+    D_MODEL: 256
+    NHEAD: 8
+    DIM_FEEDFORWARD: 2048
+    QUERY_NUM: 5
+    NORMALIZE_BEFORE: False
+    DROPOUT: 0.1
+    DS_RATE: 8
+    TEMP_LEN: 40
+    SAMPLE_RATE: 1
+    PRETRAINED: True
+    PRETRAIN_BACKBONE_DIR: "../pretrained_models/backbone/ViT-B_K400_16x4.pth"
+    PRETRAIN_TRANSFORMER_DIR: "/path/to/jhmdb_vit-b_split{}_transformer.pth"
+    PRETRAINED_PATH: ""
+    LOAD: False
+    LOAD_FC: False
+    LOAD_DETR: True
+    POSITION_EMBEDDING: "sine"
+    NUM_FEATURE_LEVELS: 4
+    NUM_ENC_N_POINTS: 8
+    BBOX_EMBED_DIFF_EACH_LAYER: False
+    LABEL_SMOOTHING_ALPHA: 0.0
+
+  MATCHER:
+    COST_CLASS: 4
+    COST_BBOX: 5
+    COST_GIOU: 2
+    BNY_LOSS: True
+    BEFORE: False
+
+  LOSS_COFS:
+    MASK_COF: 1
+    DICE_COF: 4
+    BBOX_COF: 5
+    GIOU_COF: 2
+    PERSON_COF: 3
+    EOS_COF: 0.5
+    WEIGHT: 10
+    CLIPS_MAX_NORM: 0.1
+
+  LOG:
+    BASE_PATH: '/path/to/save/JHMDB'
+    LOG_DIR: 'tb_log'
+    SAVE_DIR: 'checkpoints'
+    EVAL_DIR: '/path/to/save/JHMDB/eval'
+    RES_DIR: CM_ViT-B_{}-{}/res
+    EXP_NAME: CM_ViT-B_{}-{}
+    DISPLAY_FREQ: 50
