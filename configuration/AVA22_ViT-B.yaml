@@ -1,30 +1,36 @@
 DDP_CONFIG:
   WORLD_SIZE: 1
   WORLD_RANK: 0
-  GPU_WORLD_SIZE: 8
+  GPU_WORLD_SIZE: 1
   GPU_WORLD_RANK: 0
   DIST_URL: 'tcp://{}:11588' 
   WORLD_URLS: ["{}"]
   AUTO_RANK_MATCH: True
   DIST_BACKEND: 'nccl'
   GPU: 0
-  DISTRIBUTED: True
+  DISTRIBUTED: False
 
 CONFIG:
-  EVAL_ONLY: True
+  EVAL_ONLY: False
   TWO_STREAM: False
   USE_LFB: False
   USE_LOCATION: False
   
   VAL:
+    BATCH_SIZE: 2
+    FREQ: 2
+
+  TRAIN:
     BATCH_SIZE: 1
     FREQ: 2
 
+  AUG:
+    COLOR_JITTER: 0.4
+
   DATA:
     DATASET_NAME: 'ava'
-    LABEL_PATH: '../assets/ava_action_list_v2.1_for_activitynet_2018.pbtxt'
-    ANNO_PATH: '../assets/ava_{}_v22_updated.json'
-    DATA_PATH: '/path/to/dataset/AVA/frames/{}/'
+    LABEL_PATH: '/home/kclee/HDD/paper/AVA_dataset/annotations/ava_action_list_v2.2_for_activitynet_2019.pbtxt'
+    DATA_PATH: '/home/kclee/HDD/paper/AVA_dataset'
     NUM_CLASSES: 80
     MULTIGRID: False
     IMG_SIZE: 256
@@ -50,14 +56,15 @@ CONFIG:
     TEMP_LEN: 16
     SAMPLE_RATE: 4
     PRETRAINED: True
-    PRETRAIN_BACKBONE_DIR: "../pretrained_models/backbone/ViT-B_K400_16x4.pth"
-    PRETRAIN_TRANSFORMER_DIR: "/path/to/ava22_csn50_transformer.pth"
-    PRETRAINED_PATH: ""
+    PRETRAIN_BACKBONE_DIR: "checkpoint.pth"
+    PRETRAIN_TRANSFORMER_DIR: "ava22_csn50_transformer.pth"
+    PRETRAINED_PATH: "ava22_vit-b.pth"
     POSITION_EMBEDDING: "sine"
     NUM_FEATURE_LEVELS: 4
     NUM_ENC_N_POINTS: 8
     BBOX_EMBED_DIFF_EACH_LAYER: False
     LABEL_SMOOTHING_ALPHA: 0.1
+    LAST_STRIDE: True
 
   MATCHER:
     COST_CLASS: 12
@@ -77,10 +84,10 @@ CONFIG:
     CLIPS_MAX_NORM: 0.1
 
   LOG:
-    BASE_PATH: '/path/to/save/AVA'
+    BASE_PATH: './ava_cmvit'
     LOG_DIR: 'tb_log'
     SAVE_DIR: 'checkpoints'
-    EVAL_DIR: '/path/to/save/AVA/eval'
+    EVAL_DIR: './ava_cmvit/eval'
     RES_DIR: CM_ViT-B_{}-{}/res
     EXP_NAME: CM_ViT-B_{}-{}
-    DISPLAY_FREQ: 1000
+    DISPLAY_FREQ: 10

@@ -17,18 +17,15 @@ import datasets.video_transforms as T
 import json
 from utils.utils import print_log
 import os
-
+import csv
 
 class VideoDataset(data.Dataset):
 
-    def __init__(self, frame_path, video_frame_bbox, frame_keys_list, clip_len, frame_sample_rate,
+    def __init__(self, root_path, clip_len, frame_sample_rate,
                  transforms, crop_size=224, resize_size=256, mode="train", class_num=80, gpu_world_rank=0, log_path=None):
-        self.video_frame_bbox = video_frame_bbox
-        self.video_frame_list = frame_keys_list
-        self.frame_path = frame_path
+        self.frame_path = os.path.join(root_path, 'frames')
 
-        self.video_frame_list = self.video_frame_list
-
+        self.annot_path = os.path.join(root_path, 'annotations', f'ava_{mode}_v2.2.csv')
         self.crop_size = crop_size
         self.clip_len = clip_len
         self.frame_sample_rate = frame_sample_rate
@@ -40,16 +37,42 @@ class VideoDataset(data.Dataset):
         self.mode = mode
         if gpu_world_rank == 0:
             print_log(log_path, "rescale size: {}, crop size: {}".format(resize_size, crop_size))
+        self.read_ann_csv()
+    #    breakpoint()
+    
+    def read_ann_csv(self):
+        my_dict = dict()
+
+        with open(self.annot_path, 'r') as f:
+            csv_reader = csv.reader(f)
+            for row in csv_reader:
+                
+                # Combine the first two columns to form the key
+                key = '/'.join([row[0], row[1]])
+
+                # Combine the next four columns to form the subkey
+                subkey = '/'.join([row[2], row[3], row[4], row[5]])
+
+                # Get the dictionary associated with the key, or create a new one if it doesn't exist
+                sub_dict = my_dict.setdefault(key, dict())
+
+                # Get the list associated with the subkey, or create a new one if it doesn't exist
+                sub_list = sub_dict.setdefault(subkey, [])
+
+                # Append the value to the sub-list
+                sub_list.append(int(row[6]))
+        # breakpoint()
+        self.data_dict = my_dict
+        self.data_list = list(my_dict.keys())
+        self.data_len  = len(self.data_list)
 
     def __getitem__(self, index):
-
-        frame_key = self.video_frame_list[index]
-        vid, frame_second = frame_key.split(",")
+        vid, frame_second = self.data_list[index].split('/')
         timef = int(frame_second) - 900
 
         start_img = np.max((timef * 30 - self.clip_len // 2 * self.frame_sample_rate, 0))
 
-        imgs, target = self.loadvideo(start_img, vid, frame_key)
+        imgs, target = self.loadvideo(start_img, vid, self.data_list[index])
 
         if len(target) == 0 or target['boxes'].shape[0] == 0:
             pass
@@ -60,14 +83,13 @@ class VideoDataset(data.Dataset):
         while len(target) == 0 or target['boxes'].shape[0] == 0:
             print('resample.')
             self.index_cnt -= 1
-            index = np.random.randint(len(self.video_frame_list))
-            frame_key = self.video_frame_list[index]
-            vid, frame_second = frame_key.split(",")
+            index = np.random.randint(len(self.data_list))
+            vid, frame_second = self.data_list[index].split('/')
             timef = int(frame_second) - 900
 
             start_img = np.max((timef * 30 - self.clip_len // 2 * self.frame_sample_rate, 0))
 
-            imgs, target = self.loadvideo(start_img, vid, frame_key) # ex) frame_key: '_eBah6c5kyA,1024' 
+            imgs, target = self.loadvideo(start_img, vid, self.data_list[index]) # ex) frame_key: '_eBah6c5kyA,1024' 
 
             if len(target)==0 or target['boxes'].shape[0] == 0:
                 pass
@@ -99,23 +121,38 @@ class VideoDataset(data.Dataset):
 
         p_t = int(self.clip_len // 2)
         key_pos = p_t
-        anno_entity = self.video_frame_bbox[sample_id]
+        # anno_entity = = self.data_dict[self.data_list[sample_id]]
 
-        for i, bbox in enumerate(anno_entity["bboxes"]):
+        # for i, bbox in enumerate(anno_entity["bboxes"]):
+        #     label_tmp = np.zeros((num_classes, ))
+        #     acts_p = anno_entity["acts"][i]
+        #     for l in acts_p:
+        #         label_tmp[l] = 1
+
+        #     if np.sum(label_tmp) == 0: continue
+        #     p_x = np.int_(bbox[0] * nw)
+        #     p_y = np.int_(bbox[1] * nh)
+        #     p_w = np.int_(bbox[2] * nw)
+        #     p_h = np.int_(bbox[3] * nh)
+
+        #     boxes.append([p_t, p_x, p_y, p_w, p_h])
+        #     classes.append(label_tmp)
+
+        cur_frame_dict = self.data_dict[sample_id]
+        for raw_bboxes in cur_frame_dict.keys():
+            box = list(raw_bboxes.split('/'))
+            box = [float(x) for x in box]
+            box[0] *= nw
+            box[1] *= nh
+            box[2] *= nw
+            box[3] *= nh
+
             label_tmp = np.zeros((num_classes, ))
-            acts_p = anno_entity["acts"][i]
-            for l in acts_p:
-                label_tmp[l] = 1
-
-            if np.sum(label_tmp) == 0: continue
-            p_x = np.int_(bbox[0] * nw)
-            p_y = np.int_(bbox[1] * nh)
-            p_w = np.int_(bbox[2] * nw)
-            p_h = np.int_(bbox[3] * nh)
-
-            boxes.append([p_t, p_x, p_y, p_w, p_h])
+            for x in cur_frame_dict[raw_bboxes]:
+                label_tmp[x - 1] = 1
+            
+            boxes.append([p_t] + box)
             classes.append(label_tmp)
-
         boxes = torch.as_tensor(boxes, dtype=torch.float32).reshape(-1, 5)
         boxes[:, 1::3].clamp_(min=0, max=int(nw))
         boxes[:, 2::3].clamp_(min=0, max=nh)
@@ -138,7 +175,8 @@ class VideoDataset(data.Dataset):
         return target
 
     def loadvideo(self, start_img, vid, frame_key):
-        video_frame_path = self.frame_path.format(vid)
+        # video_frame_path = self.frame_path.format(vid)
+        video_frame_path = os.path.join(self.frame_path, vid)
         video_frame_list = sorted(glob(video_frame_path + '/*.jpg'))
 
         if len(video_frame_list) == 0:
@@ -159,10 +197,17 @@ class VideoDataset(data.Dataset):
         return buffer, target
 
     def __len__(self):
-        return len(self.video_frame_list)
+        return self.data_len
 
 
 def make_transforms(image_set, cfg):
+    IMAGENET_PCA = {
+    'eigval': torch.Tensor([0.2175, 0.0188, 0.0045]),
+    'eigvec': torch.Tensor([
+        [-0.5675,  0.7192,  0.4009],
+        [-0.5808, -0.0045, -0.8140],
+        [-0.5836, -0.6948,  0.4203],
+    ])}
     normalize = T.Compose([
         T.ToTensor(),
         T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
@@ -176,8 +221,8 @@ def make_transforms(image_set, cfg):
             T.RandomSizeCrop_Custom(cfg.CONFIG.DATA.IMG_SIZE),
             T.ColorJitter(sat_shift=cfg.CONFIG.AUG.COLOR_JITTER,val_shift=cfg.CONFIG.AUG.COLOR_JITTER,),
             T.PCAJitter(alphastd=0.1,
-                        eigval=np.array(cfg.CONFIG.AUG.TRAIN_PCA_EIGVAL).astype(np.float32),
-                        eigvec=np.array(cfg.CONFIG.AUG.TRAIN_PCA_EIGVEC).astype(np.float32),),
+                        eigval=IMAGENET_PCA['eigval'].numpy(),
+                        eigvec=IMAGENET_PCA['eigvec'].numpy(),),
             normalize,
         ])
 
@@ -254,12 +299,17 @@ def make_image_key(video_id, timestamp):
 def build_dataloader(cfg):
     log_path = os.path.join(cfg.CONFIG.LOG.BASE_PATH, cfg.CONFIG.LOG.EXP_NAME)
 
-    val_bbox_json = json.load(open(cfg.CONFIG.DATA.ANNO_PATH.format("val")))
-    val_video_frame_bbox, val_frame_keys_list = val_bbox_json["video_frame_bbox"], val_bbox_json["frame_keys_list"]
+    train_dataset = VideoDataset(cfg.CONFIG.DATA.DATA_PATH,
+                               transforms=make_transforms("train", cfg),
+                               frame_sample_rate=cfg.CONFIG.DATA.FRAME_RATE,
+                               clip_len=cfg.CONFIG.DATA.TEMP_LEN,
+                               resize_size=cfg.CONFIG.DATA.IMG_SIZE,
+                               crop_size=cfg.CONFIG.DATA.IMG_SIZE,
+                               mode="train",
+                               gpu_world_rank=cfg.DDP_CONFIG.GPU_WORLD_RANK,
+                               log_path=log_path,)
 
     val_dataset = VideoDataset(cfg.CONFIG.DATA.DATA_PATH,
-                               val_video_frame_bbox,
-                               val_frame_keys_list,
                                transforms=make_transforms("val", cfg),
                                frame_sample_rate=cfg.CONFIG.DATA.FRAME_RATE,
                                clip_len=cfg.CONFIG.DATA.TEMP_LEN,
@@ -270,15 +320,19 @@ def build_dataloader(cfg):
                                log_path=log_path,)
 
     if cfg.DDP_CONFIG.DISTRIBUTED:
+        train_sampler = torch.utils.data.distributed.DistributedSampler(val_dataset)
         val_sampler = torch.utils.data.distributed.DistributedSampler(val_dataset)
     else:
+        train_sampler = None
         val_sampler = None
-
+    train_loader = torch.utils.data.DataLoader(
+        train_dataset, batch_size=cfg.CONFIG.TRAIN.BATCH_SIZE, shuffle=(train_sampler is None),
+        num_workers=9, sampler=train_sampler, pin_memory=True, collate_fn=collate_fn)
     val_loader = torch.utils.data.DataLoader(
-        val_dataset, batch_size=cfg.CONFIG.VAL.BATCH_SIZE, shuffle=(val_sampler is None),
-        num_workers=9, sampler=val_sampler, pin_memory=True, collate_fn=collate_fn)
+        val_dataset, batch_size=cfg.CONFIG.VAL.BATCH_SIZE, shuffle=False,
+        num_workers=0, sampler=val_sampler, pin_memory=True, collate_fn=collate_fn)
     if cfg.DDP_CONFIG.GPU_WORLD_RANK==0:
-        print_log(log_path, "train and val anno are from:", cfg.CONFIG.DATA.ANNO_PATH.format("train"), ", ", cfg.CONFIG.DATA.ANNO_PATH.format("val"))
+        print_log(log_path, "train and val anno are from:", train_loader.dataset.annot_path, ", ", val_loader.dataset.annot_path)
 
     return val_loader, val_sampler
 

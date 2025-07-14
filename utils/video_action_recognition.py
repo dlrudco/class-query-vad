@@ -92,32 +92,33 @@ def validate_ava(cfg, model, criterion, postprocessors, data_loader, epoch):
             del t["image_id"]
 
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
-        if cfg.CONFIG.TWO_STREAM:
-            if cfg.CONFIG.USE_LFB:
-                if cfg.CONFIG.USE_LOCATION:
-                    outputs = model(samples, samples2, lfb_features, lfb_location_features)
+        with torch.cuda.amp.autocast():
+            if cfg.CONFIG.TWO_STREAM:
+                if cfg.CONFIG.USE_LFB:
+                    if cfg.CONFIG.USE_LOCATION:
+                        outputs = model(samples, samples2, lfb_features, lfb_location_features)
+                    else:
+                        outputs = model(samples, samples2, lfb_features)
                 else:
-                    outputs = model(samples, samples2, lfb_features)
+                    outputs = model(samples, samples2)
             else:
-                outputs = model(samples, samples2)
-        else:
-            if cfg.CONFIG.USE_LFB:
-                if cfg.CONFIG.USE_LOCATION:
-                    outputs = model(samples, lfb_features, lfb_location_features)
+                if cfg.CONFIG.USE_LFB:
+                    if cfg.CONFIG.USE_LOCATION:
+                        outputs = model(samples, lfb_features, lfb_location_features)
+                    else:
+                        outputs = model(samples, lfb_features)
                 else:
-                    outputs = model(samples, lfb_features)
-            else:
-                try:
-                    model.training=False
-                except:
-                    pass
-                if not "DN" in cfg.CONFIG.LOG.EXP_NAME:
-                    outputs = model(samples)
-                else:
-                    dn_args = targets, cfg.CONFIG.MODEL.NUM_PATTERNS
-                    outputs, mask_dict = model(samples, dn_args)
-                    loss_dict = criterion(outputs, targets, mask_dict)
-                # outputs, num_boxes_per_batch_idx = model(targets, samples)
+                    try:
+                        model.training=False
+                    except:
+                        pass
+                    if not "DN" in cfg.CONFIG.LOG.EXP_NAME:
+                        outputs = model(samples)
+                    else:
+                        dn_args = targets, cfg.CONFIG.MODEL.NUM_PATTERNS
+                        outputs, mask_dict = model(samples, dn_args)
+                        loss_dict = criterion(outputs, targets, mask_dict)
+                    # outputs, num_boxes_per_batch_idx = model(targets, samples)
 
         loss_dict = criterion(outputs, targets)
         weight_dict = criterion.weight_dict
@@ -186,10 +187,10 @@ def validate_ava(cfg, model, criterion, postprocessors, data_loader, epoch):
 
             # reduce on single GPU
             loss_dict_reduced = loss_dict
-            loss_dict_reduced_unscaled = {f'{k}_unscaled': v
+            loss_dict_reduced_scaled = {f'{k}_unscaled': v
                                           for k, v in loss_dict_reduced.items()}
-            loss_dict_reduced_scaled = {k: v * weight_dict[k]
-                                        for k, v in loss_dict_reduced.items() if k in weight_dict}
+            # loss_dict_reduced_scaled = {k: v * weight_dict[k]
+            #                             for k, v in loss_dict_reduced.items() if k in weight_dict}
             losses_reduced_scaled = sum(loss_dict_reduced_scaled.values())
 
             loss_value = losses_reduced_scaled.item()
