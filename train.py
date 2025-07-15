@@ -82,7 +82,8 @@ def main_worker(cfg):
     
     optimizer = torch.optim.AdamW(model.parameters(), lr=float(cfg.CONFIG.TRAIN.LR))
     if cfg.DDP_CONFIG.GPU_WORLD_RANK == 0:
-        logger = wandb.init(project='class_query_vad', config=cfg)
+        exp_name = cfg.CONFIG.LOG.EXP_NAME
+        logger = wandb.init(project='class_query_vad', config=cfg, name=exp_name)
     else:
         logger = None
     
@@ -113,6 +114,7 @@ def train_epoch(cfg, model, criterion, optimizer, scaler, postprocessor, dataloa
     optimizer.zero_grad()
     total_updates_per_epoch = (len(dataloader) + cfg.CONFIG.TRAIN.GRAD_ACCUM - 1) // cfg.CONFIG.TRAIN.GRAD_ACCUM
     total_update = 0
+    batch_time = time.time()
     for step, batch in enumerate(dataloader, 1):
         # Assume batch is a tuple of (inputs, targets)
         inputs, targets = batch
@@ -143,12 +145,13 @@ def train_epoch(cfg, model, criterion, optimizer, scaler, postprocessor, dataloa
                 optimizer.step()
             optimizer.zero_grad()
             total_update += 1 
-            if total_update % cfg.CONFIG.TRAIN.PRINT_INTERVAL == 0:
-                print(f"Epoch [{epoch}] Step [{total_update}/{total_updates_per_epoch}] Loss: {losses.item():.4f}")
+            if total_update % cfg.CONFIG.TRAIN.PRINT_INTERVAL == 0 and cfg.DDP_CONFIG.GPU_WORLD_RANK == 0:
+                print(f"Epoch [{epoch}] Step [{total_update}/{total_updates_per_epoch}] Loss: {losses.item():.4f} Time: {time.time() - batch_time:.2f}s")
                 if logger is not None:
                     loss_dict_reduced_scaled = {k: loss_dict[k].item() * v
                                         for k, v in criterion.weight_dict.items()}
                     logger.log({'total_step' : epoch * total_updates_per_epoch + total_update, 'total_loss' : losses.item(), **loss_dict_reduced_scaled})
+                batch_time = time.time()
         total_loss += losses.item()
         
             

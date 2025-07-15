@@ -58,7 +58,7 @@ class DETR(nn.Module):
 
         num_feature_levels = 4
         self.num_feature_levels = num_feature_levels
-        if not "ViT" in backbone_name:
+        if not "ViT" in backbone_name and not "Mamba" in backbone_name:
             if num_feature_levels > 1:            
                 self.input_proj = nn.ModuleList()
                 num_backbone_outs = len(backbone.strides)
@@ -107,7 +107,7 @@ class DETR(nn.Module):
 
         self.two_stage = two_stage
         self.hidden_dim = hidden_dim
-        self.is_vit = "ViT" in backbone_name
+        self.is_vit = "ViT" in backbone_name or "Mamba" in backbone_name
         self.generate_lfb = generate_lfb
         self.last_stride = last_stride
         self.training = training

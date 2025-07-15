@@ -309,7 +309,7 @@ def build_dataloader(cfg, mode='val'):
                                 gpu_world_rank=cfg.DDP_CONFIG.GPU_WORLD_RANK,
                                 log_path=log_path,)
         if cfg.DDP_CONFIG.DISTRIBUTED:
-            train_sampler = torch.utils.data.distributed.DistributedSampler(val_dataset)
+            train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
         else:
             train_sampler = None
         train_loader = torch.utils.data.DataLoader(
@@ -335,7 +335,7 @@ def build_dataloader(cfg, mode='val'):
 
         val_loader = torch.utils.data.DataLoader(
             val_dataset, batch_size=cfg.CONFIG.VAL.BATCH_SIZE, shuffle=False,
-            num_workers=0, sampler=val_sampler, pin_memory=True, collate_fn=collate_fn)
+            num_workers=9, sampler=val_sampler, pin_memory=True, collate_fn=collate_fn)
         if cfg.DDP_CONFIG.GPU_WORLD_RANK==0:
             print_log(log_path, "val anno is from:", val_loader.dataset.annot_path)
 

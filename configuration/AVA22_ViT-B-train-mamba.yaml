@@ -1,16 +1,27 @@
 DDP_CONFIG:
   WORLD_SIZE: 1
   WORLD_RANK: 0
-  GPU_WORLD_SIZE: 0
+  GPU_WORLD_SIZE: 4
   GPU_WORLD_RANK: 0
   DIST_URL: 'tcp://{}:11588' 
   WORLD_URLS: ["{}"]
   AUTO_RANK_MATCH: True
   DIST_BACKEND: 'nccl'
   GPU: 0
-  DISTRIBUTED: False
+  DISTRIBUTED: True
+
+
 
 CONFIG:
+  MAMBA:
+    PRETRAIN:
+      videomamba_tiny:   weights/backbone3D/videomamba_t16_k400_f16_res224.pth
+      videomamba_small:  weights/backbone3D/videomamba_s16_k400_f16_res224.pth
+      videomamba_middle: weights/backbone3D/videomamba_m16_k400_mask_ft_f16_res224.pth
+    OUT_CHANNELS:
+      videomamba_tiny: 192
+      videomamba_small: 384
+      videomamba_middle: 576
   EVAL_ONLY: False
   TWO_STREAM: False
   USE_LFB: False
@@ -22,10 +33,10 @@ CONFIG:
 
   TRAIN:
     NUM_EPOCHS : 12
-    BATCH_SIZE: 1
+    BATCH_SIZE: 4
     FREQ: 2
-    EVAL_FREQ : 3
-    GRAD_ACCUM : 32
+    EVAL_FREQ : 1
+    GRAD_ACCUM : 8
     PRINT_INTERVAL : 1
     LR : 1e-4
 
@@ -38,17 +49,20 @@ CONFIG:
     DATA_PATH: '/host_home/spalab/AVA_dataset'
     NUM_CLASSES: 80
     MULTIGRID: False
-    IMG_SIZE: 256
-    IMG_RESHAPE_SIZE: 288
+    IMG_SIZE: 224
+    IMG_RESHAPE_SIZE: 256
     TEMP_LEN: 16
     FRAME_RATE: 4
 
   MODEL:
     SINGLE_FRAME: True
-    BACKBONE_NAME: ViT
+    
+    BACKBONE_NAME: VideoMamba
+    BACKBONE_TYPE: 'videomamba_tiny'
+
     TUNE_POINT: 0 # [0, 11]
     GENERATE_LFB: False
-    NAME: 'ava_vit-b'
+    NAME: 'ava_mamba-tiny'
     ENC_LAYERS: 6
     DEC_LAYERS: 6
     D_MODEL: 256
@@ -61,9 +75,9 @@ CONFIG:
     TEMP_LEN: 16
     SAMPLE_RATE: 4
     PRETRAINED: False
-    PRETRAIN_BACKBONE_DIR: "checkpoint.pth"
+    
     POSITION_EMBEDDING: "sine"
-    NUM_FEATURE_LEVELS: 4
+    NUM_FEATURE_LEVELS: 1
     NUM_ENC_N_POINTS: 8
     BBOX_EMBED_DIFF_EACH_LAYER: False
     LABEL_SMOOTHING_ALPHA: 0.1
@@ -91,6 +105,6 @@ CONFIG:
     LOG_DIR: 'tb_log'
     SAVE_DIR: 'checkpoints'
     EVAL_DIR: './ava_cmvit/eval'
-    RES_DIR: CM_ViT-B_{}-{}/res
-    EXP_NAME: CM_ViT-B_{}-{}
+    RES_DIR: ava_mamba_tiny_{}-{}/res
+    EXP_NAME: ava_mamba_tiny_{}-{}
     DISPLAY_FREQ: 10

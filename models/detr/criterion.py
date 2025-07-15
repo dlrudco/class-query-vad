@@ -65,6 +65,7 @@ class SetCriterionAVA(nn.Module):
             print(e)
         src_logits_sig = src_logits.sigmoid()
         target_classes_o = torch.cat([t["labels"][J] for t, (_, J) in zip(targets, indices)])
+        n_p = max(target_classes_o.sum(), 1)
         target_classes_o_ = target_classes_o
         true_label = 1
         false_label = 0
@@ -87,7 +88,7 @@ class SetCriterionAVA(nn.Module):
         if self.evaluation:
             loss_ce = F.binary_cross_entropy(src_logits_sig, target_classes)
         else:
-            loss_ce = sigmoid_focal_loss(src_logits, target_classes, weights)
+            loss_ce = sigmoid_focal_loss(src_logits, target_classes, weights) / n_p
 
         losses = {'loss_ce': loss_ce}
         try:

@@ -15,6 +15,7 @@ from models.position_encoding import build_position_encoding
 from models.backbones.ir_CSN_50 import build_CSN
 from models.backbones.ir_CSN_152 import build_CSN as build_CSN_152
 from models.backbones.vit import build_ViT
+from models.backbones.mamba import build_mamba
 
 class LayerNorm(nn.Module):
     """
@@ -49,6 +50,8 @@ class Backbone(nn.Module):
         elif cfg.CONFIG.MODEL.BACKBONE_NAME== 'CSN-50':
             print("CSN-50 backbone")
             self.body = build_CSN(cfg)
+        elif cfg.CONFIG.MODEL.BACKBONE_NAME== 'VideoMamba':
+            self.body = build_mamba(cfg)
         else:
             print("ViT-B backbone")
             self.body = build_ViT(cfg)
@@ -59,13 +62,73 @@ class Backbone(nn.Module):
                 parameter.requires_grad_(False)
         self.ds = cfg.CONFIG.MODEL.SINGLE_FRAME
         use_ViT = "ViT" in cfg.CONFIG.MODEL.BACKBONE_NAME
+        use_Mamba = "VideoMamba" in cfg.CONFIG.MODEL.BACKBONE_NAME
         self.use_ViT = use_ViT
+        self.use_Mamba = use_Mamba
+        if self.use_Mamba:
+            self.mamba_proj = nn.Sequential(
+                nn.Linear( self.body.out_channels*2, self.body.out_channels),
+                nn.LayerNorm(self.body.out_channels),
+                nn.GELU(),
+                nn.Linear(self.body.out_channels, cfg.CONFIG.MODEL.D_MODEL, bias=False),
+                nn.LayerNorm(cfg.CONFIG.MODEL.D_MODEL),
+                nn.Linear(cfg.CONFIG.MODEL.D_MODEL, cfg.CONFIG.MODEL.D_MODEL, bias=False)
+            )
         if return_interm_layers:
-            if not use_ViT:
+            if not use_ViT and not use_Mamba:
                 return_layers = {"layer1": "0", "layer2": "1", "layer3": "2", "layer4": "3"}
                 self.strides = [8, 16, 32]
                 self.num_channels = [512, 1024, 2048]
                 self.in_features = None
+            elif use_Mamba:
+                out_channel = cfg.CONFIG.MODEL.D_MODEL
+                in_channels = [self.body.out_channels*2]*4
+                self.strides = [8, 16, 32]
+                self.num_channels = in_channels
+                self.lateral_convs = nn.ModuleList()
+
+                for idx, scale in enumerate([4, 2, 1, 0.5]):
+                    dim = in_channels[idx]
+                    if scale == 4.0:
+                        layers = [
+                            nn.ConvTranspose3d(dim, dim // 2, kernel_size=[1, 2, 2], stride=[1, 2, 2]),
+                            LayerNorm(dim // 2),
+                            nn.GELU(),
+                            nn.ConvTranspose3d(dim // 2, dim // 4, kernel_size=[1, 2, 2], stride=[1, 2, 2]),
+                        ]
+                        out_dim = dim // 4
+                    elif scale == 2.0:
+                        layers = [nn.ConvTranspose3d(dim, dim // 2, kernel_size=[1, 2, 2], stride=[1, 2, 2])]
+                        out_dim = dim // 2
+                    elif scale == 1.0:
+                        layers = []
+                        out_dim = dim
+                    elif scale == 0.5:
+                        layers = [nn.MaxPool3d(kernel_size=[1, 2, 2], stride=[1, 2, 2])]
+                        out_dim = dim
+                    else:
+                        raise NotImplementedError(f"scale_factor={scale} is not supported yet.")
+                    layers.extend(
+                        [
+                            nn.Conv3d(
+                                out_dim,
+                                out_channel,
+                                kernel_size=1,
+                                bias=False,
+                            ),
+                            LayerNorm(out_channel),
+                            nn.Conv3d(
+                                out_channel,
+                                out_channel,
+                                kernel_size=3,
+                                padding=1,
+                                bias=False,
+                            ),
+                        ]
+                    )
+                    layers = nn.Sequential(*layers)
+
+                    self.lateral_convs.append(layers)
             else:
                 out_channel = cfg.CONFIG.MODEL.D_MODEL
                 in_channels = [cfg.CONFIG.ViT.EMBED_DIM]*4
@@ -119,7 +182,7 @@ class Backbone(nn.Module):
             return_layers = {'layer4': "0"}
             self.strides = [32]
             self.num_channels = [2048]
-        if not use_ViT:
+        if not use_ViT and not use_Mamba:
             self.body = IntermediateLayerGetter(self.body, return_layers=return_layers)
         self.backbone_name = cfg.CONFIG.MODEL.BACKBONE_NAME
 
@@ -142,6 +205,11 @@ class Backbone(nn.Module):
             xs, xt = self.body(tensor_list.tensors)
         else:
             xs = self.body(tensor_list.tensors) #interm layer features
+        if isinstance(xs, tuple):
+            xs = torch.cat([xs[0], xs[1].permute(0,2,1)[:,:,:,None,None].expand(*xs[0].shape)], dim =1)
+            xs = F.max_pool3d(xs, kernel_size=(4, 1, 1), stride=(4, 1, 1))
+            xs = {'0' : self.mamba_proj(xs.permute(0,2,3,4,1).contiguous()).permute(0,4,1,2,3).contiguous()}
+
         if self.use_ViT:
             xs = self.space_forward(xs)
 
@@ -176,10 +244,10 @@ class Joiner(nn.Sequential):
 
 def build_3d_backbone(cfg):
     position_embedding = build_position_encoding(cfg.CONFIG.MODEL.D_MODEL)
-    backbone = Backbone(train_backbone=False, 
+    backbone = Backbone(train_backbone=True, 
                      num_channels=cfg.CONFIG.MODEL.DIM_FEEDFORWARD, 
                      position_embedding=position_embedding, 
-                     return_interm_layers=True,
+                     return_interm_layers=False,
                      cfg=cfg)
     model = Joiner(backbone, position_embedding)
     return model

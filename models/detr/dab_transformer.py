@@ -316,9 +316,10 @@ class Transformer(nn.Module):
         valid_ratios = torch.stack([self.get_valid_ratio(m) for m in masks], 1)
 
         # encoder
-        with torch.autocast("cuda", dtype=torch.float16, enabled=False):
-            memory = self.encoder(src_flatten.float(), spatio_temporal_shapes, level_start_index, valid_ratios, lvl_pos_embed_flatten, mask_flatten)
-        
+        # breakpoint()
+        # with torch.autocast("cuda", dtype=torch.float16, enabled=False):
+        #     memory = self.encoder(src_flatten.float(), spatio_temporal_shapes, level_start_index, valid_ratios, lvl_pos_embed_flatten, mask_flatten)
+        memory = src_flatten.float()
         # revert to the original shape
         srcs_per_lvl = []
         poses_per_lvl = []
@@ -333,8 +334,10 @@ class Transformer(nn.Module):
             pos_l = pos_l.reshape(-1, *shape, self.d_model).permute(0,4,1,2,3).contiguous()
             srcs_per_lvl.append(NestedTensor(src_l, masks[i]))
             poses_per_lvl.append(pos_l)
-        
-        features_per_lvl, poses_per_lvl = self.make_interpolated_features(srcs_per_lvl, poses_per_lvl, level=-2, num_frames=self.temp_len)
+        if self.num_feature_levels > 1:
+            features_per_lvl, poses_per_lvl = self.make_interpolated_features(srcs_per_lvl, poses_per_lvl, level=-2, num_frames=self.temp_len)
+        else:
+            features_per_lvl, poses_per_lvl = srcs_per_lvl, poses_per_lvl
         refpoint_embed = refpoint_embed[:,None].expand(-1, bs, -1, -1).flatten(1,2) #n_a, bs * t, 4
         intpltd_srcs_per_lvl = []
         intpltd_masks_per_lvl = []
