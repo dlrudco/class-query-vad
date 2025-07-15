@@ -296,45 +296,52 @@ def make_image_key(video_id, timestamp):
     return "%s,%04d" % (video_id, int(timestamp))
 
 
-def build_dataloader(cfg):
+def build_dataloader(cfg, mode='val'):
     log_path = os.path.join(cfg.CONFIG.LOG.BASE_PATH, cfg.CONFIG.LOG.EXP_NAME)
-
-    train_dataset = VideoDataset(cfg.CONFIG.DATA.DATA_PATH,
-                               transforms=make_transforms("train", cfg),
-                               frame_sample_rate=cfg.CONFIG.DATA.FRAME_RATE,
-                               clip_len=cfg.CONFIG.DATA.TEMP_LEN,
-                               resize_size=cfg.CONFIG.DATA.IMG_SIZE,
-                               crop_size=cfg.CONFIG.DATA.IMG_SIZE,
-                               mode="train",
-                               gpu_world_rank=cfg.DDP_CONFIG.GPU_WORLD_RANK,
-                               log_path=log_path,)
-
-    val_dataset = VideoDataset(cfg.CONFIG.DATA.DATA_PATH,
-                               transforms=make_transforms("val", cfg),
-                               frame_sample_rate=cfg.CONFIG.DATA.FRAME_RATE,
-                               clip_len=cfg.CONFIG.DATA.TEMP_LEN,
-                               resize_size=cfg.CONFIG.DATA.IMG_SIZE,
-                               crop_size=cfg.CONFIG.DATA.IMG_SIZE,
-                               mode="val",
-                               gpu_world_rank=cfg.DDP_CONFIG.GPU_WORLD_RANK,
-                               log_path=log_path,)
-
-    if cfg.DDP_CONFIG.DISTRIBUTED:
-        train_sampler = torch.utils.data.distributed.DistributedSampler(val_dataset)
-        val_sampler = torch.utils.data.distributed.DistributedSampler(val_dataset)
-    else:
-        train_sampler = None
-        val_sampler = None
-    train_loader = torch.utils.data.DataLoader(
+    if mode == 'train':
+        train_dataset = VideoDataset(cfg.CONFIG.DATA.DATA_PATH,
+                                transforms=make_transforms("train", cfg),
+                                frame_sample_rate=cfg.CONFIG.DATA.FRAME_RATE,
+                                clip_len=cfg.CONFIG.DATA.TEMP_LEN,
+                                resize_size=cfg.CONFIG.DATA.IMG_SIZE,
+                                crop_size=cfg.CONFIG.DATA.IMG_SIZE,
+                                mode="train",
+                                gpu_world_rank=cfg.DDP_CONFIG.GPU_WORLD_RANK,
+                                log_path=log_path,)
+        if cfg.DDP_CONFIG.DISTRIBUTED:
+            train_sampler = torch.utils.data.distributed.DistributedSampler(val_dataset)
+        else:
+            train_sampler = None
+        train_loader = torch.utils.data.DataLoader(
         train_dataset, batch_size=cfg.CONFIG.TRAIN.BATCH_SIZE, shuffle=(train_sampler is None),
         num_workers=9, sampler=train_sampler, pin_memory=True, collate_fn=collate_fn)
-    val_loader = torch.utils.data.DataLoader(
-        val_dataset, batch_size=cfg.CONFIG.VAL.BATCH_SIZE, shuffle=False,
-        num_workers=0, sampler=val_sampler, pin_memory=True, collate_fn=collate_fn)
-    if cfg.DDP_CONFIG.GPU_WORLD_RANK==0:
-        print_log(log_path, "train and val anno are from:", train_loader.dataset.annot_path, ", ", val_loader.dataset.annot_path)
+        if cfg.DDP_CONFIG.GPU_WORLD_RANK==0:
+            print_log(log_path, "train anno is from:", train_loader.dataset.annot_path)
+        return train_loader, train_sampler
+    elif mode == 'val':
+        val_dataset = VideoDataset(cfg.CONFIG.DATA.DATA_PATH,
+                                transforms=make_transforms("val", cfg),
+                                frame_sample_rate=cfg.CONFIG.DATA.FRAME_RATE,
+                                clip_len=cfg.CONFIG.DATA.TEMP_LEN,
+                                resize_size=cfg.CONFIG.DATA.IMG_SIZE,
+                                crop_size=cfg.CONFIG.DATA.IMG_SIZE,
+                                mode="val",
+                                gpu_world_rank=cfg.DDP_CONFIG.GPU_WORLD_RANK,
+                                log_path=log_path,)
+        if cfg.DDP_CONFIG.DISTRIBUTED:
+            val_sampler = torch.utils.data.distributed.DistributedSampler(val_dataset)
+        else:
+            val_sampler = None
 
-    return val_loader, val_sampler
+        val_loader = torch.utils.data.DataLoader(
+            val_dataset, batch_size=cfg.CONFIG.VAL.BATCH_SIZE, shuffle=False,
+            num_workers=0, sampler=val_sampler, pin_memory=True, collate_fn=collate_fn)
+        if cfg.DDP_CONFIG.GPU_WORLD_RANK==0:
+            print_log(log_path, "val anno is from:", val_loader.dataset.annot_path)
+
+        return val_loader, val_sampler
+    else:
+        raise ValueError("mode should be either train or val")
 
 def reverse_norm(imgs):
     img = imgs

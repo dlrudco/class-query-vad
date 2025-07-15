@@ -2,3 +2,4 @@
 __pycache__
 ops/
 *.pth
+/wandb/

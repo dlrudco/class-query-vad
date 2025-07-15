@@ -182,8 +182,8 @@ def load_model_and_states(model, scaler, cfg):
     """
     Load pretrained model weights.
     """
+    log_path = os.path.join(cfg.CONFIG.LOG.BASE_PATH, cfg.CONFIG.LOG.EXP_NAME)
     if os.path.isfile(cfg.CONFIG.MODEL.PRETRAINED_PATH):
-        log_path = os.path.join(cfg.CONFIG.LOG.BASE_PATH, cfg.CONFIG.LOG.EXP_NAME)
         print_log(log_path, "=> loading checkpoint '{}'".format(cfg.CONFIG.MODEL.PRETRAINED_PATH))
         if cfg.DDP_CONFIG.GPU is None:
             checkpoint = torch.load(cfg.CONFIG.MODEL.PRETRAINED_PATH)
@@ -247,7 +247,7 @@ def save_model(model, optimizer, epoch, cfg, scaler=None):
     save_checkpoint(state_dict, filename=checkpoint)        
 
 
-def save_checkpoint(cfg, epoch, model, max_accuracy, optimizer, lr_scheduler, scaler):
+def save_checkpoint(cfg, epoch, model, accuracy, max_accuracy, optimizer, scaler, lr_scheduler=None):
     cuda_rng_state = 0
     if model.device == 'cuda':
         cuda_rng_state = torch.cuda.get_rng_state()
@@ -258,7 +258,8 @@ def save_checkpoint(cfg, epoch, model, max_accuracy, optimizer, lr_scheduler, sc
     
     save_state = {'model': model.state_dict(),
                   'optimizer': optimizer.state_dict(),
-                  'lr_scheduler': lr_scheduler.state_dict(),
+                  'lr_scheduler': lr_scheduler.state_dict() if lr_scheduler is not None else None,
+                  'accuracy': accuracy,
                   'max_accuracy': max_accuracy,
                   'epoch': epoch,
                   'config': cfg,

@@ -24,7 +24,10 @@ CONFIG:
     NUM_EPOCHS : 12
     BATCH_SIZE: 2
     FREQ: 2
-    EVAL_FREQ: 3
+    EVAL_FREQ : 3
+    GRAD_ACCUM : 16
+    PRINT_INTERVAL : 1
+    LR : 1e-4
 
   AUG:
     COLOR_JITTER: 0.4
@@ -35,8 +38,8 @@ CONFIG:
     DATA_PATH: '/home/kclee/HDD/paper/AVA_dataset'
     NUM_CLASSES: 80
     MULTIGRID: False
-    IMG_SIZE: 256
-    IMG_RESHAPE_SIZE: 288
+    IMG_SIZE: 128
+    IMG_RESHAPE_SIZE: 144
     TEMP_LEN: 16
     FRAME_RATE: 4
 
@@ -57,10 +60,8 @@ CONFIG:
     DS_RATE: 8
     TEMP_LEN: 16
     SAMPLE_RATE: 4
-    PRETRAINED: True
+    PRETRAINED: False
     PRETRAIN_BACKBONE_DIR: "checkpoint.pth"
-    PRETRAIN_TRANSFORMER_DIR: "ava22_csn50_transformer.pth"
-    PRETRAINED_PATH: "ava22_vit-b.pth"
     POSITION_EMBEDDING: "sine"
     NUM_FEATURE_LEVELS: 4
     NUM_ENC_N_POINTS: 8

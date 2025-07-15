@@ -258,6 +258,8 @@ def validate_ava(cfg, model, criterion, postprocessors, data_loader, epoch):
         print_log(save_path, print_string)
         print_log(save_path, mAP)
         Map_ = mAP[0]
+    else:
+        metrics = {}
 
     if Map_ != 0:
         metrics_data = json.dumps({
@@ -273,7 +275,7 @@ def validate_ava(cfg, model, criterion, postprocessors, data_loader, epoch):
         print(metrics_data)
     torch.distributed.barrier()
     time.sleep(30)
-    return Map_
+    return Map_, metrics
 
 @torch.no_grad()
 def validate_jhmdb(cfg, model, criterion, postprocessors, data_loader, epoch):
