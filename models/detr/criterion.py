@@ -60,9 +60,9 @@ class SetCriterionAVA(nn.Module):
             target_classes_b = torch.full(src_logits_b.shape[:2], 2,
                                 dtype=torch.int64, device=src_logits.device)
             target_classes_b[idx] = 1
-            loss_ce_b = F.cross_entropy(src_logits_b.transpose(1, 2), target_classes_b, self.empty_weight.to(src_logits.device))
+            loss_ce_b = F.cross_entropy(src_logits_b.transpose(1, 2), target_classes_b, self.empty_weight.to(src_logits_b.device).to(src_logits_b.dtype))
         except Exception as e:
-            print(e)
+            breakpoint()
         src_logits_sig = src_logits.sigmoid()
         target_classes_o = torch.cat([t["labels"][J] for t, (_, J) in zip(targets, indices)])
         n_p = max(target_classes_o.sum(), 1)
