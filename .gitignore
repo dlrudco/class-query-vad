@@ -5,3 +5,4 @@ ops/
 /wandb/
 VideoMamba
 weights
+/selective_scan/

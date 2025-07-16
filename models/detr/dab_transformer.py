@@ -113,15 +113,25 @@ class Transformer(nn.Module):
                  gradient_checkpointing=False,
                  num_conv_blocks=3,
                  num_classes=80,
-                 temp_len=32,                 
+                 temp_len=32,
+                 encoder_type = 'attention',
+                 decoder_type = 'attention'                 
                  ):
 
         super().__init__()
-
-        encoder_layer = DeformableTransformerEncoderLayer(d_model, dim_feedforward,
+        self.encoder_type = encoder_type
+        self.decoder_type = decoder_type
+        if encoder_type == 'attention':
+            encoder_layer = DeformableTransformerEncoderLayer(d_model, dim_feedforward,
                                                           dropout, activation,
                                                           num_feature_levels, nhead, enc_n_points)
-        self.encoder = DeformableTransformerEncoder(encoder_layer, num_encoder_layers, gradient_checkpointing)
+            self.encoder = DeformableTransformerEncoder(encoder_layer, num_encoder_layers, gradient_checkpointing)
+        elif encoder_type == 'ssm':
+            encoder_layer = VSSMambaEncoderLayer(d_model,dim_feedforward, dropout, activation)
+            self.encoder = GeneralEncoder(encoder_layer, num_encoder_layers)
+        else:
+            raise ValueError("encoder_type must be either 'attention' or 'ssm'")
+        
         decoder_layer = TransformerDecoderLayer(d_model, nhead, dim_feedforward,
                                                 dropout, activation, normalize_before, keep_query_pos=keep_query_pos)
         cls_decoder_layer = TransformerClassDecoderLayer(d_model, nhead, dim_feedforward, dropout, activation, num_conv_blocks)        
@@ -367,13 +377,37 @@ class Transformer(nn.Module):
         memory = rearrange(memory, "B C T H W L -> L (H W) (B T) C")
         pos_embed = rearrange(pos_embed, "B C T H W L -> L (H W) (B T) C")
         mask = rearrange(mask, "B T H W L -> (B T) (H W) L")[..., 0]
-
         with torch.autocast("cuda", dtype=torch.float16, enabled=False):
             hs, cls_hs, references = self.decoder(tgt, memory, memory_key_padding_mask=mask,
                             pos=pos_embed, refpoints_unsigmoid=refpoint_embed, orig_res=(h,w))
         return hs, cls_hs, references
 
 
+class GeneralEncoder(nn.Module):
+    def __init__(self, encoder_layer, num_layers, gradient_checkpointing=False):
+        super().__init__()
+        self.layers = _get_clones(encoder_layer, num_layers)
+        self.num_layers = num_layers
+
+    def forward(self, src, spatio_temporal_shapes, level_start_index, valid_ratios, pos=None, padding_mask=None):
+        """
+        Input:
+            - src: [bs, sum(ti*hi*wi), 256]
+            - spatio_temporal_shapes: h,w of each level [num_level, 3]
+            - level_start_index: [num_level] start point of level in sum(ti*hi*wi).
+            - valid_ratios: [bs, num_level, 3]
+            - pos: pos embed for src. [bs, sum(ti*hi*wi), 256]
+            - padding_mask: [bs, sum(ti*hi*wi)]
+        Intermedia:
+            - reference_points: [bs, sum(ti*hi*wi), num_level, 2]
+        """
+        output = src
+        # bs, sum(ti*hi*wi), 256
+        # import ipdb; ipdb.set_trace()
+        for _, layer in enumerate(self.layers):
+            output = layer(output, pos, None, spatio_temporal_shapes, level_start_index, padding_mask)
+        return output
+    
 class DeformableTransformerEncoder(nn.Module):
     def __init__(self, encoder_layer, num_layers, gradient_checkpointing=False):
         super().__init__()
@@ -470,6 +504,66 @@ class DeformableTransformerEncoderLayer(nn.Module):
         src = self.norm1(src)
 
         # ffn
+        src = self.forward_ffn(src)
+
+        return src
+
+from .VSS import VSSBlock
+from VideoMamba.mamba.mamba_ssm.modules.mamba_simple import Mamba
+
+class VSSMambaEncoderLayer(nn.Module):
+    def __init__(self,
+                 d_model=256, d_ffn=1024,
+                 dropout=0.1, activation="relu"):
+        super().__init__()
+        self.ssm = VSSBlock(d_model, ssm_d_state=16, hidden_dim=d_model, drop_path=0.4, mlp_ratio=0., post_norm=True)
+        # self attention
+        self.dropout1 = nn.Dropout(dropout)
+        self.norm1 = nn.LayerNorm(d_model)
+
+        # ffn
+        self.linear1 = nn.Linear(d_model, d_ffn)
+        self.activation = _get_activation_fn(activation)
+        self.dropout2 = nn.Dropout(dropout)
+        self.linear2 = nn.Linear(d_ffn, d_model)
+        self.dropout3 = nn.Dropout(dropout)
+        self.norm2 = nn.LayerNorm(d_model)
+        self.ssm_norm = nn.LayerNorm(d_model)
+
+    @staticmethod
+    def with_pos_embed(tensor, pos):
+        return tensor if pos is None else tensor + pos
+
+    def forward_ffn(self, src):
+        src2 = self.linear2(self.dropout2(self.activation(self.linear1(src))))
+        src = src + self.dropout3(src2)
+        src = self.norm2(src)
+        return src
+
+    def forward(self, src, pos, reference_points, spatio_temporal_shapes, level_start_index, padding_mask=None):
+        # encoder ssm
+        t,h,w = spatio_temporal_shapes[0]
+        src = src.reshape(src.shape[0], t.item(), h.item(), w.item(), src.shape[-1])
+        pos = pos.reshape(src.shape[0], t.item(), h.item(), w.item(), src.shape[-1])
+        f_src = src.clone()
+        b_src = src.clone()
+
+        for t_idx in range(t):
+            f_x = f_src[:,t_idx] if t_idx == 0 else self.ssm_norm(f_src[:,t_idx] + f_out)
+            b_x = b_src[:,-1-t_idx] if t_idx == 0 else self.ssm_norm(b_src[:, -1-t_idx] + b_out)
+            f_seq = rearrange(f_x, 'b h w c -> b c h w')
+            f_pos = rearrange(pos[:,t_idx], 'b h w c -> b c h w')
+            b_seq = rearrange(b_x, 'b h w c -> b c h w')
+            b_pos = rearrange(pos[:,-1-t_idx], 'b h w c -> b c h w')
+            f_out = self.ssm(self.with_pos_embed(f_seq, f_pos))
+            b_out = self.ssm(self.with_pos_embed(b_seq, b_pos))
+            f_out = rearrange(f_out, 'b c h w -> b h w c')
+            b_out = rearrange(b_out, 'b c h w -> b h w c')
+            f_src[:, t_idx] = f_out
+            b_src[:, -1-t_idx] = b_out
+        # ffn
+        src = f_src + b_src
+        src = rearrange(src, 'b t h w c -> b (t h w) c')
         src = self.forward_ffn(src)
 
         return src
@@ -907,6 +1001,8 @@ def build_transformer(cfg):
         bbox_embed_diff_each_layer=cfg.CONFIG.MODEL.BBOX_EMBED_DIFF_EACH_LAYER,
         num_classes=cfg.CONFIG.DATA.NUM_CLASSES if 'ava' in cfg.CONFIG.DATA.DATASET_NAME else cfg.CONFIG.DATA.NUM_CLASSES,
         temp_len=cfg.CONFIG.DATA.TEMP_LEN,
+        encoder_type=cfg.CONFIG.MODEL.get('ENCODER_TYPE', 'attention'),
+        decoder_type=cfg.CONFIG.MODEL.get('DECODER_TYPE', 'attention'),
     )
 
 
