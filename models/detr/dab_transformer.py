@@ -317,9 +317,9 @@ class Transformer(nn.Module):
 
         # encoder
         # breakpoint()
-        # with torch.autocast("cuda", dtype=torch.float16, enabled=False):
-        #     memory = self.encoder(src_flatten.float(), spatio_temporal_shapes, level_start_index, valid_ratios, lvl_pos_embed_flatten, mask_flatten)
-        memory = src_flatten.float()
+        with torch.autocast("cuda", dtype=torch.float16, enabled=False):
+            memory = self.encoder(src_flatten.float(), spatio_temporal_shapes, level_start_index, valid_ratios, lvl_pos_embed_flatten, mask_flatten)
+        # memory = src_flatten.float()
         # revert to the original shape
         srcs_per_lvl = []
         poses_per_lvl = []

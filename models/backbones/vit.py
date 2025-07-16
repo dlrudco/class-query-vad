@@ -134,14 +134,14 @@ def build_ViT(cfg):
     model = ViT(cfg)
     tune_point = cfg.CONFIG.MODEL.TUNE_POINT
     log_path = os.path.join(cfg.CONFIG.LOG.BASE_PATH, cfg.CONFIG.LOG.EXP_NAME)
-    if cfg.CONFIG.MODEL.PRETRAINED:
-        load_weights(model,
-                     pretrain_path=cfg.CONFIG.MODEL.PRETRAIN_BACKBONE_DIR,
-                     load_fc=False,
-                     tune_point=tune_point,
-                     gpu_world_rank=cfg.DDP_CONFIG.GPU_WORLD_RANK,
-                     log_path=log_path,
-                     )
+    # if cfg.CONFIG.MODEL.PRETRAINED:
+    load_weights(model,
+                    pretrain_path=cfg.CONFIG.MODEL.PRETRAIN_BACKBONE_DIR,
+                    load_fc=False,
+                    tune_point=tune_point,
+                    gpu_world_rank=cfg.DDP_CONFIG.GPU_WORLD_RANK,
+                    log_path=log_path,
+                    )
     if cfg.DDP_CONFIG.GPU_WORLD_RANK == 0:
         print_log(log_path, "build ViT, tune point: {}".format(tune_point))
     return model

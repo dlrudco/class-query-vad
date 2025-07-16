@@ -38,7 +38,7 @@ def main_worker(cfg):
 
     cfg.CONFIG.MODEL.LOAD = True
     cfg.CONFIG.MODEL.LOAD_FC = True
-    cfg.CONFIG.MODEL.LOAD_DETR = False
+    cfg.CONFIG.MODEL.LOAD_DETR = True
 
     # create model
     if cfg.DDP_CONFIG.GPU_WORLD_RANK == 0:    
@@ -95,7 +95,7 @@ def main_worker(cfg):
             with torch.no_grad():
                 _Map, metrics = validate(cfg, model, criterion, postprocessors, val_loader, cur_epoch)
             if logger is not None:
-                logger.log(**metrics, commit=False)
+                logger.log(metrics, commit=False)
         if cfg.DDP_CONFIG.GPU_WORLD_RANK == 0:
             if best_Map < _Map:
                 best_Map = _Map

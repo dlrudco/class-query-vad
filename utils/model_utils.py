@@ -76,14 +76,29 @@ def load_detr_weights(model, pretrain_dir, cfg):
         # print_log(log_path, "not found layers:", [k for k in not_found_dict.keys() if not "backbone" in k])
 
     model_dict.update(pretrained_dict_)
-    model.load_state_dict(model_dict)
+    
+    model_dict = on_load_checkpoint(model, model_dict, log_path)
+    model.load_state_dict(model_dict, strict=False)
+
     if cfg.DDP_CONFIG.GPU_WORLD_RANK == 0:
         if len(pretrained_dict_.keys())!=0:
             print_log(log_path, "detr load pretrain success")
         else:
             print_log(log_path, "detr load pretrain failed")
 
+def on_load_checkpoint(model, state_dict, log_path):
+    model_state_dict = model.state_dict()
+    for k in state_dict:
+        if k in model_state_dict:
+            if state_dict[k].shape != model_state_dict[k].shape:
+                print_log(log_path, f"Skip loading parameter: {k}, \nrequired shape: {model_state_dict[k].shape},\nloaded shape: {state_dict[k].shape}")
+                state_dict[k] = model_state_dict[k]
 
+        else:
+            print_log(log_path, f"Dropping parameter {k}")
+    return state_dict
+
+    
 def deploy_model(model, cfg):
     """
     Deploy model to multiple GPUs for DDP training.
@@ -120,6 +135,7 @@ def deploy_model(model, cfg):
     else:
         # DataParallel will divide and allocate batch_size to all available GPUs
         model = torch.nn.DataParallel(model).cuda()
+
     if cfg.CONFIG.MODEL.LOAD_DETR:
         if cfg.DDP_CONFIG.GPU_WORLD_RANK == 0:
             print_log(log_path, "loading detr")

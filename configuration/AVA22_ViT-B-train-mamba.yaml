@@ -75,7 +75,8 @@ CONFIG:
     TEMP_LEN: 16
     SAMPLE_RATE: 4
     PRETRAINED: False
-    
+
+    PRETRAIN_TRANSFORMER_DIR: "ava22_csn50_transformer.pth"
     POSITION_EMBEDDING: "sine"
     NUM_FEATURE_LEVELS: 1
     NUM_ENC_N_POINTS: 8

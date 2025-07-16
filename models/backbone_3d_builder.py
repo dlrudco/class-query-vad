@@ -247,7 +247,7 @@ def build_3d_backbone(cfg):
     backbone = Backbone(train_backbone=True, 
                      num_channels=cfg.CONFIG.MODEL.DIM_FEEDFORWARD, 
                      position_embedding=position_embedding, 
-                     return_interm_layers=False,
+                     return_interm_layers=True,
                      cfg=cfg)
     model = Joiner(backbone, position_embedding)
     return model
