@@ -1,14 +1,14 @@
 DDP_CONFIG:
   WORLD_SIZE: 1
   WORLD_RANK: 0
-  GPU_WORLD_SIZE: 4
+  GPU_WORLD_SIZE: 1
   GPU_WORLD_RANK: 0
   DIST_URL: 'tcp://{}:11588' 
   WORLD_URLS: ["{}"]
   AUTO_RANK_MATCH: True
   DIST_BACKEND: 'nccl'
   GPU: 0
-  DISTRIBUTED: True
+  DISTRIBUTED: False
 
 
 
@@ -33,10 +33,10 @@ CONFIG:
 
   TRAIN:
     NUM_EPOCHS : 12
-    BATCH_SIZE: 4
+    BATCH_SIZE: 1
     FREQ: 2
     EVAL_FREQ : 1
-    GRAD_ACCUM : 8
+    GRAD_ACCUM : 128
     PRINT_INTERVAL : 1
     LR : 1e-4
 
@@ -45,8 +45,7 @@ CONFIG:
 
   DATA:
     DATASET_NAME: 'ava'
-    LABEL_PATH: '/host_home/spalab/AVA_dataset/annotations/ava_action_list_v2.2_for_activitynet_2019.pbtxt'
-    DATA_PATH: '/host_home/spalab/AVA_dataset'
+    LABEL_PATH: 'annotations/ava_action_list_v2.2_for_activitynet_2019.pbtxt'
     NUM_CLASSES: 80
     MULTIGRID: False
     IMG_SIZE: 224
@@ -59,6 +58,7 @@ CONFIG:
     
     BACKBONE_NAME: VideoMamba
     BACKBONE_TYPE: 'videomamba_tiny'
+    RETURN_INTERM_LAYERS: False
 
     TUNE_POINT: 0 # [0, 11]
     GENERATE_LFB: False
@@ -75,7 +75,8 @@ CONFIG:
     TEMP_LEN: 16
     SAMPLE_RATE: 4
     PRETRAINED: False
-
+    LOAD_DETR: False
+    
     PRETRAIN_TRANSFORMER_DIR: "ava22_csn50_transformer.pth"
     POSITION_EMBEDDING: "sine"
     NUM_FEATURE_LEVELS: 1

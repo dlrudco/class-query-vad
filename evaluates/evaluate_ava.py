@@ -38,7 +38,7 @@ class STDetectionEvaluater(object):
         self.class_num = class_num
         if class_num == 80:
             self.exclude_keys = []
-            f = open("/host_home/spalab/AVA_dataset/annotations/ava_val_excluded_timestamps_v2.2.csv")
+            f = open(f"{'/'.join(self.label_path.split('/')[:-1])}/ava_val_excluded_timestamps_v2.2.csv")
             while True:
                 line = f.readline().strip()
                 if not line: break

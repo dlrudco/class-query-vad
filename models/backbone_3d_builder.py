@@ -244,10 +244,11 @@ class Joiner(nn.Sequential):
 
 def build_3d_backbone(cfg):
     position_embedding = build_position_encoding(cfg.CONFIG.MODEL.D_MODEL)
+    return_interm_layers = cfg.CONFIG.MODEL.get('RETURN_INTERM_LAYERS', True)
     backbone = Backbone(train_backbone=True, 
                      num_channels=cfg.CONFIG.MODEL.DIM_FEEDFORWARD, 
                      position_embedding=position_embedding, 
-                     return_interm_layers=True,
+                     return_interm_layers=return_interm_layers,
                      cfg=cfg)
     model = Joiner(backbone, position_embedding)
     return model

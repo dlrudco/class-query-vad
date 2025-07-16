@@ -38,7 +38,7 @@ def main_worker(cfg):
 
     cfg.CONFIG.MODEL.LOAD = True
     cfg.CONFIG.MODEL.LOAD_FC = True
-    cfg.CONFIG.MODEL.LOAD_DETR = True
+    # cfg.CONFIG.MODEL.LOAD_DETR = cfg.CONFIG.MODEL.LOAD_DETR
 
     # create model
     if cfg.DDP_CONFIG.GPU_WORLD_RANK == 0:    
@@ -169,6 +169,7 @@ if __name__ == '__main__':
     parser.add_argument('--pretrained_path',
                         default='',
                         help='path to pretrained .pth file')
+    parser.add_argument('--root_data_path', type=str)
     args = parser.parse_args()
 
     cfg = get_cfg_defaults()
@@ -178,6 +179,8 @@ if __name__ == '__main__':
     study = now.strftime("%Y-%m-%d")
     run = now.strftime("%H-%M")
 
+    cfg.CONFIG.DATA.DATA_PATH = args.root_data_path
+    cfg.CONFIG.DATA.LABEL_PATH = os.path.join(args.root_data_path, cfg.CONFIG.DATA.LABEL_PATH)
     cfg.CONFIG.LOG.RES_DIR = cfg.CONFIG.LOG.RES_DIR.format(study, run)
     cfg.CONFIG.LOG.EXP_NAME = cfg.CONFIG.LOG.EXP_NAME.format(study, run)
     if args.debug:
