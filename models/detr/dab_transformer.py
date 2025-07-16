@@ -126,11 +126,14 @@ class Transformer(nn.Module):
                                                           dropout, activation,
                                                           num_feature_levels, nhead, enc_n_points)
             self.encoder = DeformableTransformerEncoder(encoder_layer, num_encoder_layers, gradient_checkpointing)
-        elif encoder_type == 'ssm':
+        elif encoder_type == 'vssm':
             encoder_layer = VSSMambaEncoderLayer(d_model,dim_feedforward, dropout, activation)
             self.encoder = GeneralEncoder(encoder_layer, num_encoder_layers)
+        elif encoder_type == 'ssm':
+            encoder_layer = MambaEncoderLayer(d_model,dim_feedforward, dropout, activation)
+            self.encoder = GeneralEncoder(encoder_layer, num_encoder_layers)
         else:
-            raise ValueError("encoder_type must be either 'attention' or 'ssm'")
+            raise ValueError("encoder_type must be either 'attention', 'vssm' or 'ssm'")
         
         decoder_layer = TransformerDecoderLayer(d_model, nhead, dim_feedforward,
                                                 dropout, activation, normalize_before, keep_query_pos=keep_query_pos)
@@ -329,21 +332,32 @@ class Transformer(nn.Module):
         # breakpoint()
         with torch.autocast("cuda", dtype=torch.float16, enabled=False):
             memory = self.encoder(src_flatten.float(), spatio_temporal_shapes, level_start_index, valid_ratios, lvl_pos_embed_flatten, mask_flatten)
+        if isinstance(memory, tuple):
+            memory, lvl_pos_embed_flatten = memory
         # memory = src_flatten.float()
         # revert to the original shape
         srcs_per_lvl = []
         poses_per_lvl = []
-        for i, (index, shape) in enumerate(zip(level_start_index, spatio_temporal_shapes)):
-            if i < self.num_feature_levels-1:
-                src_l = memory[:, index:level_start_index[i+1], :]
-                pos_l = lvl_pos_embed_flatten[:, index:level_start_index[i+1], :]
-            else:
-                src_l = memory[:, index:, :]
-                pos_l = lvl_pos_embed_flatten[:, index:, :]
-            src_l = src_l.reshape(-1, *shape, self.d_model).permute(0,4,1,2,3).contiguous()
-            pos_l = pos_l.reshape(-1, *shape, self.d_model).permute(0,4,1,2,3).contiguous()
-            srcs_per_lvl.append(NestedTensor(src_l, masks[i]))
+        if self.encoder_type == 'ssm':
+            src_l = memory
+            pos_l = lvl_pos_embed_flatten
+            shape = spatio_temporal_shapes[0]
+            src_l = src_l.reshape(-1, *shape[1:], self.d_model).unsqueeze(1).permute(0,4,1,2,3).contiguous()
+            pos_l = pos_l.reshape(-1, *shape[1:], self.d_model).unsqueeze(1).permute(0,4,1,2,3).contiguous()
+            srcs_per_lvl.append(NestedTensor(src_l, masks[0]))
             poses_per_lvl.append(pos_l)
+        else:
+            for i, (index, shape) in enumerate(zip(level_start_index, spatio_temporal_shapes)):
+                if i < self.num_feature_levels-1:
+                    src_l = memory[:, index:level_start_index[i+1], :]
+                    pos_l = lvl_pos_embed_flatten[:, index:level_start_index[i+1], :]
+                else:
+                    src_l = memory[:, index:, :]
+                    pos_l = lvl_pos_embed_flatten[:, index:, :]
+                src_l = src_l.reshape(-1, *shape, self.d_model).permute(0,4,1,2,3).contiguous()
+                pos_l = pos_l.reshape(-1, *shape, self.d_model).permute(0,4,1,2,3).contiguous()
+                srcs_per_lvl.append(NestedTensor(src_l, masks[i]))
+                poses_per_lvl.append(pos_l)
         if self.num_feature_levels > 1:
             features_per_lvl, poses_per_lvl = self.make_interpolated_features(srcs_per_lvl, poses_per_lvl, level=-2, num_frames=self.temp_len)
         else:
@@ -404,8 +418,8 @@ class GeneralEncoder(nn.Module):
         output = src
         # bs, sum(ti*hi*wi), 256
         # import ipdb; ipdb.set_trace()
-        for _, layer in enumerate(self.layers):
-            output = layer(output, pos, None, spatio_temporal_shapes, level_start_index, padding_mask)
+        for layer_idx, layer in enumerate(self.layers):
+            output = layer(output, pos, None, spatio_temporal_shapes, level_start_index, padding_mask, return_key= layer_idx == self.num_layers-1)
         return output
     
 class DeformableTransformerEncoder(nn.Module):
@@ -511,16 +525,16 @@ class DeformableTransformerEncoderLayer(nn.Module):
 from .VSS import VSSBlock
 from VideoMamba.mamba.mamba_ssm.modules.mamba_simple import Mamba
 
-class VSSMambaEncoderLayer(nn.Module):
+class MambaEncoderLayer(nn.Module):
     def __init__(self,
                  d_model=256, d_ffn=1024,
                  dropout=0.1, activation="relu"):
         super().__init__()
-        self.ssm = VSSBlock(d_model, ssm_d_state=16, hidden_dim=d_model, drop_path=0.4, mlp_ratio=0., post_norm=True)
-        # self attention
-        self.dropout1 = nn.Dropout(dropout)
-        self.norm1 = nn.LayerNorm(d_model)
-
+        self.compress = nn.Linear(d_model, d_model//2)
+        self.pos_compress = nn.Linear(d_model, d_model//2)
+        self.ssm = Mamba(d_model//2, d_state=4, d_conv=2, expand=1, dt_rank=4, bimamba=False)
+        self.ssm_norm = nn.LayerNorm(d_model//2)
+        self.decompress = nn.Linear(d_model//2, d_model)
         # ffn
         self.linear1 = nn.Linear(d_model, d_ffn)
         self.activation = _get_activation_fn(activation)
@@ -528,7 +542,7 @@ class VSSMambaEncoderLayer(nn.Module):
         self.linear2 = nn.Linear(d_ffn, d_model)
         self.dropout3 = nn.Dropout(dropout)
         self.norm2 = nn.LayerNorm(d_model)
-        self.ssm_norm = nn.LayerNorm(d_model)
+        
 
     @staticmethod
     def with_pos_embed(tensor, pos):
@@ -540,7 +554,83 @@ class VSSMambaEncoderLayer(nn.Module):
         src = self.norm2(src)
         return src
 
-    def forward(self, src, pos, reference_points, spatio_temporal_shapes, level_start_index, padding_mask=None):
+    def forward(self, src, orig_pos, reference_points, spatio_temporal_shapes, level_start_index, padding_mask=None, return_key=False, key_idx=-1):
+        # compress src
+        
+        src = self.compress(src)
+        pos = self.pos_compress(orig_pos)
+        # encoder ssm
+        t,h,w = spatio_temporal_shapes[0]
+        src = src.reshape(src.shape[0], t.item(), h.item(), w.item(), src.shape[-1])
+        pos = pos.reshape(src.shape[0], t.item(), h.item(), w.item(), src.shape[-1])
+        f_src = src.clone()
+        b_src = src.clone()
+
+        for t_idx in range(t):
+            f_x = f_src[:,t_idx] if t_idx == 0 else self.ssm_norm(f_src[:,t_idx] + f_out)
+            b_x = b_src[:,-1-t_idx] if t_idx == 0 else self.ssm_norm(b_src[:, -1-t_idx] + b_out)
+            f_seq = rearrange(f_x, 'b h w c -> b (h w) c')
+            f_pos = rearrange(pos[:,t_idx], 'b h w c -> b (h w) c')
+            b_seq = rearrange(b_x, 'b h w c -> b (h w) c')
+            b_pos = rearrange(pos[:,-1-t_idx], 'b h w c -> b (h w) c')
+            f_out = self.ssm(self.with_pos_embed(f_seq, f_pos))
+            b_out = self.ssm(self.with_pos_embed(b_seq, b_pos))
+            f_out = rearrange(f_out, 'b (h w) c -> b h w c', h=h, w=w)
+            b_out = rearrange(b_out, 'b (h w) c -> b h w c', h=h, w=w)
+            f_src[:, t_idx] = f_out
+            b_src[:, -1-t_idx] = b_out
+        # ffn
+        
+        if return_key:
+            src = f_src[:, key_idx] + b_src[:, key_idx]
+            src = rearrange(src, 'b h w c -> b (h w) c')
+            orig_pos = orig_pos.reshape(orig_pos.shape[0], t.item(), h.item(), w.item(), orig_pos.shape[-1])
+            pos = rearrange(orig_pos[:, key_idx], 'b h w c -> b (h w) c')
+        else:
+            src = f_src + b_src
+            src = rearrange(src, 'b t h w c -> b (t h w) c')
+        src = self.decompress(src)
+        src = self.forward_ffn(src)
+        if return_key:
+            return src, pos
+        else:
+            return src
+
+
+class VSSMambaEncoderLayer(nn.Module):
+    def __init__(self,
+                 d_model=256, d_ffn=1024,
+                 dropout=0.1, activation="relu"):
+        super().__init__()
+        self.compress = nn.Linear(d_model, d_model//2)
+        self.pos_compress = nn.Linear(d_model, d_model//2)
+        self.ssm = VSSBlock(d_model//2, ssm_d_state=4, hidden_dim=d_model//2, drop_path=0.4, mlp_ratio=0., post_norm=True)
+        self.ssm_norm = nn.LayerNorm(d_model//2)
+        self.decompress = nn.Linear(d_model//2, d_model)
+        # ffn
+        self.linear1 = nn.Linear(d_model, d_ffn)
+        self.activation = _get_activation_fn(activation)
+        self.dropout2 = nn.Dropout(dropout)
+        self.linear2 = nn.Linear(d_ffn, d_model)
+        self.dropout3 = nn.Dropout(dropout)
+        self.norm2 = nn.LayerNorm(d_model)
+        
+
+    @staticmethod
+    def with_pos_embed(tensor, pos):
+        return tensor if pos is None else tensor + pos
+
+    def forward_ffn(self, src):
+        src2 = self.linear2(self.dropout2(self.activation(self.linear1(src))))
+        src = src + self.dropout3(src2)
+        src = self.norm2(src)
+        return src
+
+    def forward(self, src, orig_pos, reference_points, spatio_temporal_shapes, level_start_index, padding_mask=None, return_key=False, key_idx=-1):
+        # compress src
+        
+        src = self.compress(src)
+        pos = self.pos_compress(orig_pos)
         # encoder ssm
         t,h,w = spatio_temporal_shapes[0]
         src = src.reshape(src.shape[0], t.item(), h.item(), w.item(), src.shape[-1])
@@ -562,11 +652,21 @@ class VSSMambaEncoderLayer(nn.Module):
             f_src[:, t_idx] = f_out
             b_src[:, -1-t_idx] = b_out
         # ffn
-        src = f_src + b_src
-        src = rearrange(src, 'b t h w c -> b (t h w) c')
+        
+        if return_key:
+            src = f_src[:, key_idx] + b_src[:, key_idx]
+            src = rearrange(src, 'b h w c -> b (h w) c')
+            orig_pos = orig_pos.reshape(orig_pos.shape[0], t.item(), h.item(), w.item(), orig_pos.shape[-1])
+            pos = rearrange(orig_pos[:, key_idx], 'b h w c -> b (h w) c')
+        else:
+            src = f_src + b_src
+            src = rearrange(src, 'b t h w c -> b (t h w) c')
+        src = self.decompress(src)
         src = self.forward_ffn(src)
-
-        return src
+        if return_key:
+            return src, pos
+        else:
+            return src
 
 class TransformerDecoder(nn.Module):
 

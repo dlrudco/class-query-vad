@@ -108,6 +108,21 @@ def main_worker(cfg):
     if cfg.DDP_CONFIG.GPU_WORLD_RANK == 0: 
         print_log(save_path, 'Epoch time {}'.format(total_time_str))
 
+class ExpAverageMeter():
+    def __init__(self, beta=0.9):
+        self.beta = beta
+        self.val = None
+        self.avg = None
+        self.count = 0
+    def update(self, val):
+        self.val = val
+        self.avg = self.beta * self.avg + (1 - self.beta) * val if self.avg is not None else val
+        self.count += 1
+    def reset(self):
+        self.val = None
+        self.avg = None
+        self.count = 0
+
 def train_epoch(cfg, model, criterion, optimizer, scaler, postprocessor, dataloader, device, epoch, logger=None):
     model.train()
     total_loss = 0.0
@@ -115,6 +130,8 @@ def train_epoch(cfg, model, criterion, optimizer, scaler, postprocessor, dataloa
     total_updates_per_epoch = (len(dataloader) + cfg.CONFIG.TRAIN.GRAD_ACCUM - 1) // cfg.CONFIG.TRAIN.GRAD_ACCUM
     total_update = 0
     batch_time = time.time()
+    avg_meters = {}
+    batch_loss = 0.
     for step, batch in enumerate(dataloader, 1):
         # Assume batch is a tuple of (inputs, targets)
         inputs, targets = batch
@@ -129,11 +146,15 @@ def train_epoch(cfg, model, criterion, optimizer, scaler, postprocessor, dataloa
             loss_dict = criterion(outputs, targets) # Compute losses
             # Sum weighted losses (using loss weights from the criterion)
             losses = sum(loss_dict[k] * w for k, w in criterion.weight_dict.items())
+            batch_loss += losses.item() / cfg.CONFIG.TRAIN.GRAD_ACCUM
         if scaler is None:
             losses.backward()
         else:
             scaler.scale(losses).backward()
-
+        for key, weight in criterion.weight_dict.items():
+            if key not in avg_meters:
+                avg_meters[key] = ExpAverageMeter()
+            avg_meters[key].update(loss_dict[key].item() * weight)
         if (step+1) % cfg.CONFIG.TRAIN.GRAD_ACCUM == 0:
             if scaler is not None:
                 scaler.unscale_(optimizer)
@@ -145,13 +166,15 @@ def train_epoch(cfg, model, criterion, optimizer, scaler, postprocessor, dataloa
                 optimizer.step()
             optimizer.zero_grad()
             total_update += 1 
+            
             if total_update % cfg.CONFIG.TRAIN.PRINT_INTERVAL == 0 and cfg.DDP_CONFIG.GPU_WORLD_RANK == 0:
-                print(f"Epoch [{epoch}] Step [{total_update}/{total_updates_per_epoch}] Loss: {losses.item():.4f} Time: {time.time() - batch_time:.2f}s")
+                print(f"Epoch [{epoch}] Step [{total_update}/{total_updates_per_epoch}] Loss: {batch_loss:.4f} Time: {time.time() - batch_time:.2f}s")
                 if logger is not None:
-                    loss_dict_reduced_scaled = {k: loss_dict[k].item() * v
+                    loss_dict_reduced_scaled = {k: avg_meters[k].avg
                                         for k, v in criterion.weight_dict.items()}
-                    logger.log({'total_step' : epoch * total_updates_per_epoch + total_update, 'total_loss' : losses.item(), **loss_dict_reduced_scaled})
+                    logger.log({'total_step' : epoch * total_updates_per_epoch + total_update, 'total_loss' : batch_loss, **loss_dict_reduced_scaled})
                 batch_time = time.time()
+            batch_loss = 0.
         total_loss += losses.item()
         
             

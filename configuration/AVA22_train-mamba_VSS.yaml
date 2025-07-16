@@ -33,10 +33,10 @@ CONFIG:
 
   TRAIN:
     NUM_EPOCHS : 12
-    BATCH_SIZE: 1
+    BATCH_SIZE: 2
     FREQ: 2
     EVAL_FREQ : 1
-    GRAD_ACCUM : 128
+    GRAD_ACCUM : 64
     PRINT_INTERVAL : 1
     LR : 1e-4
 
@@ -59,7 +59,7 @@ CONFIG:
     BACKBONE_NAME: VideoMamba
     BACKBONE_TYPE: 'videomamba_tiny'
     RETURN_INTERM_LAYERS: False
-    ENCODER_TYPE: ssm
+    ENCODER_TYPE: vssm
 
     TUNE_POINT: 0 # [0, 11]
     GENERATE_LFB: False
@@ -68,7 +68,7 @@ CONFIG:
     DEC_LAYERS: 6
     D_MODEL: 256
     NHEAD: 8
-    DIM_FEEDFORWARD: 2048
+    DIM_FEEDFORWARD: 1024
     QUERY_NUM: 15
     NORMALIZE_BEFORE: False
     DROPOUT: 0.1
