@@ -63,7 +63,7 @@ CONFIG:
 
     TUNE_POINT: 0 # [0, 11]
     GENERATE_LFB: False
-    NAME: 'ava_mamba-tiny'
+    NAME: 'ava_mamba-tiny_vssm'
     ENC_LAYERS: 6
     DEC_LAYERS: 6
     D_MODEL: 256

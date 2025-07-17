@@ -90,16 +90,16 @@ def main_worker(cfg):
     best_Map = 0
     for cur_epoch in range(start_epoch, cfg.CONFIG.TRAIN.NUM_EPOCHS):
         avg_loss = train_epoch(cfg, model, criterion, optimizer, scaler, postprocessors, train_loader, f'cuda:{cfg.DDP_CONFIG.GPU_WORLD_RANK}', cur_epoch, logger=logger)
-        if (cur_epoch + 1) % cfg.CONFIG.TRAIN.EVAL_FREQ == 0:
+        if (cur_epoch + 1) % cfg.CONFIG.TRAIN.get('EVAL_FREQ', 1) == 0:
             model.eval()
             with torch.no_grad():
                 _Map, metrics = validate(cfg, model, criterion, postprocessors, val_loader, cur_epoch)
             if logger is not None:
                 logger.log(metrics, commit=False)
-        if cfg.DDP_CONFIG.GPU_WORLD_RANK == 0:
-            if best_Map < _Map:
-                best_Map = _Map
-            save_checkpoint(cfg, cur_epoch, model, _Map, best_Map, optimizer, scaler)
+            if cfg.DDP_CONFIG.GPU_WORLD_RANK == 0:
+                if best_Map < _Map:
+                    best_Map = _Map
+                save_checkpoint(cfg, cur_epoch, model, _Map, best_Map, optimizer, scaler)
 
         if logger is not None:
             logger.log({'epoch' : cur_epoch, 'avg_loss' : avg_loss}, commit=True)

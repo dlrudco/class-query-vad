@@ -24,7 +24,7 @@ CONFIG:
     NUM_EPOCHS : 12
     BATCH_SIZE: 1
     FREQ: 2
-    EVAL_FREQ : 3
+    EVAL_FREQ : 1
     GRAD_ACCUM : 32
     PRINT_INTERVAL : 1
     LR : 1e-4
@@ -34,8 +34,7 @@ CONFIG:
 
   DATA:
     DATASET_NAME: 'ava'
-    LABEL_PATH: '/host_home/spalab/AVA_dataset/annotations/ava_action_list_v2.2_for_activitynet_2019.pbtxt'
-    DATA_PATH: '/host_home/spalab/AVA_dataset'
+    LABEL_PATH: 'annotations/ava_action_list_v2.2_for_activitynet_2019.pbtxt'
     NUM_CLASSES: 80
     MULTIGRID: False
     IMG_SIZE: 224
@@ -60,9 +59,11 @@ CONFIG:
     DS_RATE: 8
     TEMP_LEN: 16
     SAMPLE_RATE: 4
-    PRETRAINED: False
+    PRETRAINED: True
+    LOAD_DETR: False
     PRETRAIN_BACKBONE_DIR: "checkpoint.pth"
     PRETRAIN_TRANSFORMER_DIR: "ava22_csn50_transformer.pth"
+    PRETRAINED_PATH: "ava22_vit-b.pth"
     POSITION_EMBEDDING: "sine"
     NUM_FEATURE_LEVELS: 4
     NUM_ENC_N_POINTS: 8
