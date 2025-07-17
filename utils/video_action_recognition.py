@@ -241,7 +241,8 @@ def validate_ava(cfg, model, criterion, postprocessors, data_loader, epoch):
     print_log(save_path, "tmp files are all loaded")
 
     # write files and align all workers
-    torch.distributed.barrier()
+    if cfg.DDP_CONFIG.get('DISTRIBUTED', False):
+        torch.distributed.barrier()
     # aggregate files
     Map_ = 0
     # aggregate files
@@ -273,8 +274,9 @@ def validate_ava(cfg, model, criterion, postprocessors, data_loader, epoch):
                 'val_mAP': Map_
                 })
         print(metrics_data)
-    torch.distributed.barrier()
-    time.sleep(30)
+    if cfg.DDP_CONFIG.get('DISTRIBUTED', False):
+        torch.distributed.barrier()
+        time.sleep(30)
     return Map_, metrics
 
 @torch.no_grad()
